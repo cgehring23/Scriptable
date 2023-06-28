@@ -4,11 +4,11 @@ def predict(target, recipe):
     os.environ['PYTHONHASHSEED'] = '0'
     import numpy as np
     import random as rn
+    import tensorflow as tf
     # The below is necessary for starting Numpy generated random numbers
     # in a well-defined initial state.
-    np.random.seed(1)
-    rn.seed(1)
-    import tensorflow as tf
+    np.random.seed(0)
+    rn.seed(0)
     import random as python_random
     from keras.models import Sequential
     from keras.layers import Dense
@@ -35,9 +35,15 @@ def predict(target, recipe):
     # Filter data where PelletMill != '3/4'
     data = data[data['PelletMill'] != '3/4']
 
+  
+   
+   
     # Define your features and target variable
     features = ['00031', '511', '512', '44', '43', '68', '00035', '00033', '00043', '475', '00032', '55', '24', '86000225', '00036', '1093', '61', '62', '00034', '31', '88', '983', '63', '59', '70', '192', '1011', '548', '70126', '70423356', '129', '28', '51', '15', '018', '99A', '7', '40', '123A', '013', 'CSD-004', '96', '67', '128', '64', '142B']
-
+    
+    target = []
+    target.append(target1)
+    
     target_dict = {
         'ConditionerTemp': 'Conditioner Temperature',
         'DieSpeed': 'Die Speed',
@@ -49,7 +55,7 @@ def predict(target, recipe):
     }
 
     # Split your data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(data[features], data[target], test_size=0.2)
+    X_train, X_test, y_train, y_test = train_test_split(data[features], data[target1], test_size=0.2)
 
     # Print the number of items in the training set
     print(f'Number of items in training set: {X_train.shape[0]}')
@@ -68,11 +74,16 @@ def predict(target, recipe):
             return f'{x:.1f}'
 
     # Apply the formatting function to each element of the summary statistics
-    formatted_summary = summary.applymap(format_element)
+    formatted_summary = summary.apply(format_element)
     print()
     # Print the formatted summary statistics
     print(formatted_summary)
 
+    #Early stopping: Monitor the validation loss during training and stop the training process early if the validation loss starts to increase. This prevents the model from overfitting by stopping the training when it starts to perform worse on unseen data. 
+    early_stopping = EarlyStopping(monitor='val_loss', 
+                                   mode="min", 
+                                   patience=5,
+                                   restore_best_weights=True)
     def build_model():
         model = Sequential()
         model.add(Dense(64, input_dim=len(features), activation='relu', kernel_regularizer=regularizers.l2(0.01))) #started with model.add(Dense(64, input_dim=len(features), activation='relu', kernel_regularizer=regularizers.l2(0.01)))
@@ -80,27 +91,17 @@ def predict(target, recipe):
         model.add(Dense(32, activation='relu'))
         model.add(Dense(1))
         model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_squared_error'])   #started with model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_squared_error'])
+        model.fit(X_train, y_train, 
+          callbacks=[early_stopping], 
+          epochs=100, batch_size=len(X_train), 
+          validation_data=(X_test, y_test), 
+          verbose=0, 
+          shuffle = False)
+        model.predict(X_train, verbose = 0)
         return model
 
-
-    # Compile your model
-    model.compile(loss='mean_squared_error',
-                optimizer='adam',
-                metrics=['mean_squared_error'])
-
-
-    #Early stopping: Monitor the validation loss during training and stop the training process early if the validation loss starts to increase. This prevents the model from overfitting by stopping the training when it starts to perform worse on unseen data. 
-    early_stopping = EarlyStopping(monitor='val_loss', mode="min", patience=5,
-                                            restore_best_weights=True)
-    # Train your model on the training set
-    model.fit(X_train, y_train,
-            callbacks=[early_stopping],
-            epochs=100, #started at 100
-            batch_size=128, #started at 32
-            validation_data=(X_test, y_test),
-            verbose=0,
-            shuffle = False)
-
+    model = build_model()
+    
     # Evaluate the performance of your model on the testing set using mean squared error
     mse = model.evaluate(X_test, y_test, verbose = 0)[1]
     print()
@@ -118,7 +119,7 @@ def predict(target, recipe):
 
     features_dict = {feature: [0] for feature in features}
 
-
+    print("recipe ", recipe)
     # Set the URL for the API endpoint
     url = f"https://bmpublicapi-prd.adifo.cloud/api/v1/Recipes/{recipe}/compositions?siteCode=TM_Site&version=1"
 
@@ -145,7 +146,7 @@ def predict(target, recipe):
     else:
         # Handle the error
         print(f"An error occurred: {response.status_code}")
-
+        data_dict = {}
 
     for key, value in data_dict.items():
         if key in features:
@@ -199,12 +200,12 @@ def predict(target, recipe):
 
     print()
 
-    # Print the formatted prediction
-    print(f"Predicted {target_dict[target[0]]}: {prediction_str}")
-
-    return print(f"Predicted {target_dict[target[0]]}: {prediction_str}")
+    return print(f"Predicted {target_dict[target1]}: {prediction_str}")
 
 if __name__ == "__main__":
+    # Set the target and recipe variables
+    target1 = 'TPH'
+    recipe = '70112'
     # Call the predict function with the desired target and recipe
-    prediction_str = predict(target, recipe)
-    print(prediction_str)
+    prediction_str = predict(target1, recipe)
+    
