@@ -1,341 +1,210 @@
-import pyodbc
-import datetime
-from datetime import datetime
-from pylogix import PLC
-from statistics import mean
-import time
-import pandas as pd
-import paramiko
-import threading
-import inspect
+def predict(target, recipe):       
+    import pandas as pd
+    import os
+    os.environ['PYTHONHASHSEED'] = '0'
+    import numpy as np
+    import random as rn
+    # The below is necessary for starting Numpy generated random numbers
+    # in a well-defined initial state.
+    np.random.seed(1)
+    rn.seed(1)
+    import tensorflow as tf
+    import random as python_random
+    from keras.models import Sequential
+    from keras.layers import Dense
+    from keras import regularizers
+    from keras.callbacks import EarlyStopping
+    from keras.layers import Dropout
+    from sklearn.model_selection import train_test_split
+    from sklearn.model_selection import cross_val_score
+    from keras.wrappers.scikit_learn import KerasRegressor
+    from sqlalchemy import create_engine
+    import requests
+    import nest_asyncio
+    import random
+    import warnings
+    warnings.filterwarnings('ignore', category=DeprecationWarning)
+    import asyncio
+    nest_asyncio.apply()
+    # Create an engine that connects to a Microsoft SQL Server database
+    engine = create_engine('mssql+pyodbc://curran:SuperLay22@TM-BCSRV/BC130?driver=ODBC+Driver+17+for+SQL+Server')
 
-def lineno():
-    """Returns the current line number in our program."""
-    return inspect.currentframe().f_back.f_lineno
+    # Read data from a SQL table into a DataFrame
+    data = pd.read_sql('EXECUTE [dbo].[sp_PelletingSettings]', engine)
 
-def timed_execution():
-    hostname='192.168.1.204'
-    port=22
-    username='tucker'
-    password='TuckMill2552$'
+    # Filter data where PelletMill != '3/4'
+    data = data[data['PelletMill'] != '3/4']
 
-    cmd= "py Documents\pelletmill5.py"
-    try:
-        ssh=paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(hostname,port,username,password)
-        stdin,stdout,stderr=ssh.exec_command(cmd)
-        outlines=stdout.readlines()
-        resp=''.join(outlines)
-        resp=eval(resp)
-    finally:
-        if ssh:
-            ssh.close()
-    currentTime = datetime.now()
-    print(resp, "and this is line", lineno())
-    s41Dest = resp[0]['BatchingDestination']
-     
-    server = r"TM-SQL1\BESTMIX" 
-    database = r"Batching" 
-    username = "curran" 
-    password = "SuperLay22" 
-    cnxn = pyodbc.connect("DRIVER={ODBC Driver 17 for SQL Server};SERVER="+server+"; DATABASE="+database+";UID="+username+";PWD="+ password,autocommit=True)
-    cursor = cnxn.cursor()
+    # Define your features and target variable
+    features = ['00031', '511', '512', '44', '43', '68', '00035', '00033', '00043', '475', '00032', '55', '24', '86000225', '00036', '1093', '61', '62', '00034', '31', '88', '983', '63', '59', '70', '192', '1011', '548', '70126', '70423356', '129', '28', '51', '15', '018', '99A', '7', '40', '123A', '013', 'CSD-004', '96', '67', '128', '64', '142B']
 
+    target_dict = {
+        'ConditionerTemp': 'Conditioner Temperature',
+        'DieSpeed': 'Die Speed',
+        'FeederSpeed': 'Feeder Speed',
+        'ConditionerSpeed': 'Conditioner Speed',
+        'ConditionerLoad': 'Conditioner Load',
+        'PelletMillLoad': 'Pellet Mill Load',
+        'TPH': 'Tons per Hour'
+    }
+
+    # Split your data into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(data[features], data[target], test_size=0.2)
+
+    # Print the number of items in the training set
+    print(f'Number of items in training set: {X_train.shape[0]}')
+
+    # Print the number of items in the testing set
+    print(f'Number of items in testing set: {X_test.shape[0]}')
+
+    # Calculate summary statistics
+    summary = y_train.describe()
+
+    # Define a custom formatting function
+    def format_element(x):
+        if x % 1 == 0:
+            return f'{x:.0f}'
+        else:
+            return f'{x:.1f}'
+
+    # Apply the formatting function to each element of the summary statistics
+    formatted_summary = summary.applymap(format_element)
+    print()
+    # Print the formatted summary statistics
+    print(formatted_summary)
+
+    def build_model():
+        model = Sequential()
+        model.add(Dense(64, input_dim=len(features), activation='relu', kernel_regularizer=regularizers.l2(0.01))) #started with model.add(Dense(64, input_dim=len(features), activation='relu', kernel_regularizer=regularizers.l2(0.01)))
+        model.add(Dropout(0.2))
+        model.add(Dense(32, activation='relu'))
+        model.add(Dense(1))
+        model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_squared_error'])   #started with model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_squared_error'])
+        return model
+
+
+    # Compile your model
+    model.compile(loss='mean_squared_error',
+                optimizer='adam',
+                metrics=['mean_squared_error'])
+
+
+    #Early stopping: Monitor the validation loss during training and stop the training process early if the validation loss starts to increase. This prevents the model from overfitting by stopping the training when it starts to perform worse on unseen data. 
+    early_stopping = EarlyStopping(monitor='val_loss', mode="min", patience=5,
+                                            restore_best_weights=True)
+    # Train your model on the training set
+    model.fit(X_train, y_train,
+            callbacks=[early_stopping],
+            epochs=100, #started at 100
+            batch_size=128, #started at 32
+            validation_data=(X_test, y_test),
+            verbose=0,
+            shuffle = False)
+
+    # Evaluate the performance of your model on the testing set using mean squared error
+    mse = model.evaluate(X_test, y_test, verbose = 0)[1]
+    print()
+    print(f"Mean squared error: {mse:.2f}")
+
+    estimator = KerasRegressor(build_fn=build_model, epochs=100, batch_size=128, verbose=0)
+
+
+    # Use cross_val_score with the estimator
+    scores = cross_val_score(estimator, X_train, y_train, cv=5, scoring='neg_mean_squared_error')
+    mse_scores = -scores  # Convert negative MSE scores to positive
+    print()
+    print('Cross-validation scores:', mse_scores)
+
+
+    features_dict = {feature: [0] for feature in features}
+
+
+    # Set the URL for the API endpoint
+    url = f"https://bmpublicapi-prd.adifo.cloud/api/v1/Recipes/{recipe}/compositions?siteCode=TM_Site&version=1"
+
+    # Set the headers for the API request
+    headers = {
+        'Tenant-Guid': '494f7b20-e66d-44d8-acb0-967ad674f17b',
+        'X-API-KEY': 'S41ei9ahKE6guRpJ1XpW6Q=='
+    }
+
+    # Send a GET request to the API endpoint
+    response = requests.get(url, headers=headers)
+
+    # Check if the request was successful
+    if response.status_code == 200:
+        # Get the JSON data from the response
+        data = response.json()
+        comp = data['Composition']
         
-    if (resp[0]["M45020ON"] == True
-    and resp[0]["M45020RUNNING"] == 1 and resp[0]["M45022ON"] == True
-    and resp[0]["M45022RUNNING"] == 1):
-        print("S41 Route is Pellet Mill 5 Bins", "and this is line", lineno())
-        cursor.execute("""INSERT INTO [Batching].[dbo].[PM5BinDestinations] 
-        SELECT * FROM [Batching].[dbo].[S41];
-         
-        UPDATE [Batching].[dbo].[PM5BinDestinations]
-        SET Dest1 = ?
-        WHERE rnk = 1 AND Dest1 = 'S41'
-        """, s41Dest)
+        # Create a dictionary where the keys are the MaterialCode values and the values are the corresponding Value values
+        data_dict = {x['MaterialCode']: x['Value'] for x in comp}
+        
+        # Do something with the data
+        #print(data_dict)
     else:
-        print("S41 Route is Bagger2", "and this is line", lineno())
+        # Handle the error
+        print(f"An error occurred: {response.status_code}")
 
-    x = 30
 
-    for i in range(x):
-        print(f"\rSleeping for {x} seconds: {i+1} seconds", end="")
-        time.sleep(1)
+    for key, value in data_dict.items():
+        if key in features:
+            features_dict[key] = [value/100*4000]
+
+
+    # Sort the dictionary by value in descending order
+    sorted_data = sorted(features_dict.items(), key=lambda x: x[1], reverse=True)
+
+    # Find the maximum length of the keys and formatted values
+    max_key_length = max([len(k) for k, v in sorted_data])
+    max_value_length = max([len(format_element(v[0])) for k, v in sorted_data])
+
+    print()
+    print(f'              {recipe}')
+    # Iterate over the sorted key-value pairs
+    for key, value in sorted_data:
+        # Remove the colon from the key
+        key = key.replace(':', '')
+        # Left-justify the key
+        key = key.ljust(max_key_length)
+        # Check if the value is a list
+        if isinstance(value, list):
+            # Loop through the elements in the list
+            for element in value:
+                # Check if the element is greater than 0
+                if element > 0:
+                    # Format the element using the format_element function
+                    formatted_element = format_element(element)
+                    # Right-justify the formatted element
+                    formatted_element = formatted_element.rjust(max_value_length)
+                    # Print the key-value pair on a new line without a colon separator
+                    print(f"{key}       {formatted_element}")
+        else:
+            # Check if the value is greater than 0
+            if value > 0:
+                # Format the value using the format_element function
+                formatted_value = format_element(value)
+                # Right-justify the formatted value
+                formatted_value = formatted_value.rjust(max_value_length)
+                # Print the key-value pair on a new line without a colon separator
+                print(f"{key}       {formatted_value}")
+
+    # Use your trained model to make predictions on new data
+    new_data = pd.DataFrame(features_dict)
+
+    prediction = model.predict(new_data, verbose = 0)
+
+    # Convert the prediction to a string and remove the brackets and quotation marks
+    prediction_str = str(prediction).replace('[', '').replace(']', '').replace("'", "")
+
     print()
 
-    sql = """
-SELECT TOP (1000) [Dest1]
-      ,[Run]
-      ,[Recipe]
-      ,[ProductDescription]
-      ,[Actual]
-  FROM [Batching].[dbo].[PelletMillBinAssignments]
-  """
-    cursor.execute(sql)
+    # Print the formatted prediction
+    print(f"Predicted {target_dict[target[0]]}: {prediction_str}")
 
-    data = cursor.fetchall()
-    for index, element in enumerate(data):
-        print(f'{index}: {element}')
-
-    tag_list = ["PM_HMI_FLOAT2[7]","PM_HMI_FLOAT[1]","PM_HMI_FLOAT[3]","PM_HMI_FLOAT[16]","PM_HMI_FLOAT[18]","PM_HMI_FLOAT[2]"
-,"PM_HMI_FLOAT[0]","PM_HMI_BOOL[50]","PM_HMI_BOOL[51]","PM1_2_IO:I.Data[17].1","PM_HMI_BOOL[30]","PM_HMI_BOOL[54]", "PM_1_BIN_SELECTED"
-,"PM1_2_IO:I.Data[6].2","PM_HMI_BOOL[32]","PM_HMI_BOOL[42]","PM_HMI_BOOL[44]",
-
-"PM_HMI_FLOAT2[8]","PM_HMI_FLOAT[5]","PM_HMI_FLOAT[7]","PM_HMI_FLOAT[17]","PM_HMI_FLOAT[19]","PM_HMI_FLOAT[6]","PM_HMI_FLOAT[4]",
-"PM_HMI_BOOL[52]","PM_HMI_BOOL[53]","PM1_2_IO:I.Data[7].3","PM_HMI_BOOL[31]","PM_HMI_BOOL[55]","PM_2_BIN_SELECTED","PM1_2_IO:I.Data[6].2",
-"PM_HMI_BOOL[33]","PM_HMI_BOOL[46]","PM_HMI_BOOL[48]",
-
-"PM34_HMI_FLOAT[2]","PM34_HMI_FLOAT[3]","PM34_HMI_FLOAT[13]","PM34_HMI_FLOAT[15]","PM34_HMI_FLOAT[6]","PM34_HMI_FLOAT[7]","PM34_HMI_FLOAT[8]",
-"PM34_HMI_FLOAT[10]","PM34_HMI_FLOAT[9]","PM34_HMI_FLOAT[11]","PM34_HMI_FLOAT[4]","PM34_HMI_FLOAT[5]","PM34_HMI_FLOAT[0]","PM34_HMI_FLOAT[1]",
-"PM_34_IO:13:I.0","PM_34_IO:14:I.0","PM3_BIN_LL","PM4_BIN_LL","PM1_2_IO:I.Data[6].2","PM34_HMI_BIT[18]","PM34_HMI_BIT[19]", "PM34_HMI_FLOAT[20]", 
-"PM34_HMI_FLOAT[22]"]
-
-    tags = []
-    tagnames = []
-
-    with PLC() as comm:
-        comm = PLC()
-        comm.IPAddress = "192.168.1.55"
-        value = comm.Read(tag_list)
-        for r in value:
-            tags.append(r.Value)
-            tagnames.append(r.TagName)
-
-#for i, item in enumerate(tagnames):
-    #print(f"{i}. {item}")
-
-    data = [{
-    'CurrentTime':currentTime, 
-    'PelletMill':'1', 
-    'Bin':data[0][0], 
-    'Run':data[0][1],
-    'Item':data[0][2], 
-    'Description':data[0][3],
-    'Lbs':data[0][4],
-    'DieSpeed':tags[0],
-    'FeederSpeed':tags[5],
-    'SteamPct':tags[2],
-    'ConditionerTemp':tags[1],
-    'ConditionerSpeed':tags[3],
-    'ConditionerLoad':tags[4],
-    'PelletMillLoad':tags[6],
-    'DoorClosed':tags[9],
-    "SlideGateOpen":tags[15],
-    "BinActive":tags[7]
-    },
-    {
-    'CurrentTime':currentTime, 
-    'PelletMill':'1', 
-    'Bin':data[1][0], 
-    'Run':data[1][1],
-    'Item':data[1][2], 
-    'Description':data[1][3],
-    'Lbs':data[1][4],
-    'DieSpeed':tags[0],
-    'FeederSpeed':tags[5],
-    'SteamPct':tags[3],
-    'ConditionerTemp':tags[1],
-    'ConditionerSpeed':tags[3],
-    'ConditionerLoad':tags[4],
-    'PelletMillLoad':tags[6],
-    'DoorClosed':tags[9],
-    "SlideGateOpen":tags[16],
-    "BinActive":tags[8]
-    },
-    {
-    'CurrentTime':currentTime, 
-    'PelletMill':'2', 
-    'Bin':data[2][0], 
-    'Run':data[2][1],
-    'Item':data[2][2], 
-    'Description':data[2][3],
-    'Lbs':data[2][4],
-    'DieSpeed':tags[17],
-    'FeederSpeed':tags[22],
-    'SteamPct':tags[19],
-    'ConditionerTemp':tags[18],
-    'ConditionerSpeed':tags[20],
-    'ConditionerLoad':tags[21],
-    'PelletMillLoad':tags[23],
-    'DoorClosed':tags[26],
-    "SlideGateOpen":tags[31],
-    "BinActive":tags[24]
-    },
-    {
-    'CurrentTime':currentTime, 
-    'PelletMill':'2', 
-    'Bin':data[3][0], 
-    'Run':data[3][1],
-    'Item':data[3][2], 
-    'Description':data[3][3],
-    'Lbs':data[3][4],
-    'DieSpeed':tags[17],
-    'FeederSpeed':tags[22],
-    'SteamPct':tags[19],
-    'ConditionerTemp':tags[18],
-    'ConditionerSpeed':tags[20],
-    'ConditionerLoad':tags[21],
-    'PelletMillLoad':tags[23],
-    'DoorClosed':tags[26],
-    "SlideGateOpen":tags[33],
-    "BinActive":tags[25]
-    },
-     {
-    'CurrentTime':currentTime, 
-    'PelletMill':'3/4', 
-    'Bin':data[4][0], 
-    'Run':data[4][1],
-    'Item':data[4][2], 
-    'Description':data[4][3],
-    'Lbs':data[4][4],
-    'DieSpeed':mean([tags[34],tags[35]]),
-    'FeederSpeed':mean([tags[44],tags[45]]),
-    'SteamPct':mean([tags[38],tags[39]]),
-    'ConditionerTemp':mean([tags[36],tags[37]]),
-    'ConditionerSpeed':mean([tags[40],tags[41]]),
-    'ConditionerLoad':mean([tags[42],tags[43]]),
-    'PelletMillLoad':mean([tags[46],tags[47]]),
-    'DoorClosed':0 if tags[48] == False or tags[49] == False else 1,
-    "SlideGateOpen":tags[53],
-    "BinActive":tags[55]
-    },
-    {
-    'CurrentTime':currentTime, 
-    'PelletMill':'3/4', 
-    'Bin':data[5][0], 
-    'Run':data[5][1],
-    'Item':data[5][2], 
-    'Description':data[5][3],
-    'Lbs':data[5][4],
-    'DieSpeed':mean([tags[34],tags[35]]),
-    'FeederSpeed':mean([tags[44],tags[45]]),
-    'SteamPct':mean([tags[38],tags[39]]),
-    'ConditionerTemp':mean([tags[36],tags[37]]),
-    'ConditionerSpeed':mean([tags[40],tags[41]]),
-    'ConditionerLoad':mean([tags[42],tags[43]]),
-    'PelletMillLoad':mean([tags[46],tags[47]]),
-    'DoorClosed':0 if tags[48] == False or tags[49] == False else 1,
-    "SlideGateOpen":tags[54],
-    "BinActive":tags[56]
-    },
-    {
-    'CurrentTime':currentTime, 
-    'PelletMill':'5', 
-    'Bin':data[6][0], 
-    'Run':data[6][1],
-    'Item':data[6][2], 
-    'Description':data[6][3],
-    'Lbs':data[6][4],
-    'DieSpeed':resp[0]['DieSpeed'],
-    'FeederSpeed':resp[0]['FeederSpeed'],
-    'SteamPct':resp[0]['SteamPct'],
-    'ConditionerTemp':resp[0]['ConditionerTemp'],
-    'ConditionerSpeed':resp[0]['ConditionerSpeed'],
-    'ConditionerLoad':resp[0]['ConditionerLoad'],
-    'PelletMillLoad':resp[0]['PelletMillLoad'],
-    'DoorClosed':resp[0]['DoorClosed'],
-    "SlideGateOpen":resp[0]['SlideGateOpen'],
-    "BinActive":resp[0]['SlideGateOpen']
-    },
-       {
-    'CurrentTime':currentTime, 
-    'PelletMill':'5', 
-    'Bin':data[7][0], 
-    'Run':data[7][1],
-    'Item':data[7][2], 
-    'Description':data[7][3],
-    'Lbs':data[7][4],
-    'DieSpeed':resp[1]['DieSpeed'],
-    'FeederSpeed':resp[1]['FeederSpeed'],
-    'SteamPct':resp[1]['SteamPct'],
-    'ConditionerTemp':resp[1]['ConditionerTemp'],
-    'ConditionerSpeed':resp[1]['ConditionerSpeed'],
-    'ConditionerLoad':resp[1]['ConditionerLoad'],
-    'PelletMillLoad':resp[1]['PelletMillLoad'],
-    'DoorClosed':resp[1]['DoorClosed'],
-    "SlideGateOpen":resp[1]['SlideGateOpen'],
-    "BinActive":resp[1]['SlideGateOpen']
-    },
-       {
-    'CurrentTime':currentTime, 
-    'PelletMill':'5', 
-    'Bin':data[8][0], 
-    'Run':data[8][1],
-    'Item':data[8][2] , 
-    'Description':data[8][3],
-    'Lbs':data[8][4],
-    'DieSpeed':resp[2]['DieSpeed'],
-    'FeederSpeed':resp[2]['FeederSpeed'],
-    'SteamPct':resp[2]['SteamPct'],
-    'ConditionerTemp':resp[2]['ConditionerTemp'],
-    'ConditionerSpeed':resp[2]['ConditionerSpeed'],
-    'ConditionerLoad':resp[2]['ConditionerLoad'],
-    'PelletMillLoad':resp[2]['PelletMillLoad'],
-    'DoorClosed':resp[2]['DoorClosed'],
-    "SlideGateOpen":resp[2]['SlideGateOpen'],
-    "BinActive":resp[2]['SlideGateOpen']
-    },
-       {
-    'CurrentTime':currentTime, 
-    'PelletMill':'5', 
-    'Bin':data[9][0], 
-    'Run':data[9][1],
-    'Item':data[9][2], 
-    'Description':data[9][3],
-    'Lbs':data[9][4],
-    'DieSpeed':resp[3]['DieSpeed'],
-    'FeederSpeed':resp[3]['FeederSpeed'],
-    'SteamPct':resp[3]['SteamPct'],
-    'ConditionerTemp':resp[3]['ConditionerTemp'],
-    'ConditionerSpeed':resp[3]['ConditionerSpeed'],
-    'ConditionerLoad':resp[3]['ConditionerLoad'],
-    'PelletMillLoad':resp[3]['PelletMillLoad'],
-    'DoorClosed':resp[3]['DoorClosed'],
-    "SlideGateOpen":resp[3]['SlideGateOpen'],
-    "BinActive":resp[3]['SlideGateOpen']
-    }
-    ]
-    #print(data, "and this is line", lineno())
-    #print(data[6][2], data[7][2], data[8][2], data[9][2])
-    df = pd.DataFrame(data)
-        #print(*df, sep="\n")
-
-    for index, row in df.iterrows():
-        cursor.execute("""INSERT INTO [Batching].[dbo].[PelletProduction] 
-    (CurrentTime, PelletMill, Bin, Run, Item, Description, Lbs, DieSpeed, FeederSpeed, SteamPct, 
-    ConditionerTemp, ConditionerSpeed, ConditionerLoad, PelletMillLoad, DoorClosed, SlideGateOpen, BinActive) 
-    values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", 
-    row.CurrentTime, row.PelletMill, row.Bin, row.Run, row.Item, row.Description, row.Lbs, row.DieSpeed, 
-    row.FeederSpeed, row.SteamPct, row.ConditionerTemp, row.ConditionerSpeed, row.ConditionerLoad, 
-    row.PelletMillLoad, row.DoorClosed, row.SlideGateOpen, row.BinActive)
-    
-    print(currentTime.strftime('%I:%M:%S %p'), "and this is line", lineno())
-   
-    cnxn.commit()
-    cursor.close()
-def run_timer(interval):
-    while True:
-        start_time = time.time()
-        timed_execution()
-        elapsed_time = time.time() - start_time
-
-        if elapsed_time < interval:
-            time.sleep(interval - elapsed_time)
-        else:
-            print("Execution time exceeded the interval.", "and this is line", lineno())
-
+    return print(f"Predicted {target_dict[target[0]]}: {prediction_str}")
 
 if __name__ == "__main__":
-    interval = 300  # Interval in seconds
-
-    # Start the timer in a separate thread
-    timer_thread = threading.Thread(target=run_timer, args=(interval,))
-    timer_thread.start()
-
-    # Continue with other operations in the main thread
-    while True:
-        # Your other operations...
-        # ...
-        time.sleep(1)  # Add a small delay to avoid excessive CPU usage
-
+    # Call the predict function with the desired target and recipe
+    prediction_str = predict(target, recipe)
+    print(prediction_str)
