@@ -1,89 +1,132 @@
+import tkinter as tk
+from tkinter import ttk
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
-from statistics import mean
 
 
+def generate_label(species):
+    # Determine the nutrient requirements based on the selected species
+    if species == "Horse":
+        data = [
+            ["Crude Protein (min)", "10%"],
+            ["Crude Fat (min)", "3%"],
+            ["Crude Fiber (max)", "15%"],
+            ["Acid Detergent Fiber (ADF) (max)", "12%"],
+            ["Neutral Detergent Fiber (NDF) (max)", "20%"],
+            ["Calcium (min/max)", "0.8%/1.2%"],
+            ["Phosphorus (min)", "0.5%"],
+            ["Copper (min)", "20 ppm"],
+            ["Selenium (min)", "0.3 ppm"],
+            ["Zinc (min)", "100 ppm"],
+            ["Vitamin A (min)", "3000 IU/lb"]
+        ]
+    elif species == "Cattle":
+        data = [
+            # Add nutrient requirements for cattle here
+        ]
+    elif species == "Sheep":
+        data = [
+            # Add nutrient requirements for sheep here
+        ]
+    else:
+        data = []
 
+    doc = SimpleDocTemplate(f"C:/Users/Public/{species}_Feed_Label.pdf", pagesize=letter)
+    styles = getSampleStyleSheet()
+    Story = []
+    style = styles["Normal"]
 
-resp = [{'CurrentTime': '', 'PelletMill': '5', 'Bin': '551', 'Run': '', 'Item': '', 'Description': '', 'Lbs': '', 'DieSpeed': 110, 'FeederSpeed': 60, 'SteamPct': 37, 'ConditionerTemp': 186.60000610351562, 'ConditionerSpeed': 100, 'ConditionerLoad': 60, 'PelletMillLoad': 72, 'DoorClosed': True, 'SlideGateOpen': True, 'BatchingDestination': 553, 'Bagger2SlideGateOpen': False, 'M45020ON': 1, 'M45020RUNNING': True, 'M45022ON': 1, 'M45022RUNNING': True}, {'CurrentTime': '', 'PelletMill': '5', 'Bin': '552', 'Run': '', 'Item': '', 'Description': '', 'Lbs': '', 'DieSpeed': 110, 'FeederSpeed': 60, 'SteamPct': 37, 'ConditionerTemp': 186.60000610351562, 'ConditionerSpeed': 100, 'ConditionerLoad': 60, 'PelletMillLoad': 72, 'DoorClosed': True, 'SlideGateOpen': False, 'BatchingDestination': 553}, {'CurrentTime': '', 'PelletMill': '5', 'Bin': '553', 'Run': '', 'Item': '', 'Description': '', 'Lbs': '', 'DieSpeed': 110, 'FeederSpeed': 60, 'SteamPct': 37, 'ConditionerTemp': 186.60000610351562, 'ConditionerSpeed': 100, 'ConditionerLoad': 60, 'PelletMillLoad': 72, 'DoorClosed': True, 'SlideGateOpen': False, 'BatchingDestination': 553}, {'CurrentTime': '', 'PelletMill': '5', 'Bin': '554', 'Run': '', 'Item': '', 'Description': '', 'Lbs': '', 'DieSpeed': 110, 'FeederSpeed': 60, 'SteamPct': 37, 'ConditionerTemp': 186.60000610351562, 'ConditionerSpeed': 100, 'ConditionerLoad': 60, 'PelletMillLoad': 72, 'DoorClosed': True, 'SlideGateOpen': False, 'BatchingDestination': 553}]
+    # Add the product code to the top left corner and change the font size to 14
+    large_style = ParagraphStyle(name="large", fontSize=14, parent=styles["Normal"])
+    Story.append(Paragraph("81114", large_style))
+    Story.append(Spacer(1, 0.25 * inch))
 
-data = [('515', 89561, '70112', '12% All Stock Pellets', 16034.1), ('516', 89553, '70112', '12% All Stock Pellets', 16858.1), ('517', 89541, '36220', 'Quail & Gamebird Layer an', 20060.0), ('518', 89559, '36220', 'Quail & Gamebird Layer an', 19990.0), ('531/533', 89540, '21516', 'NatureCrest Rabbit Feed', 40022.0), ('532/534', 89556, '31522', 'Show Flock Layer 22 Mini', 40027.0), ('551', 89501, '111P', 'Deer Corn Premix Pellet', 56020.0), ('552', 89535, '70112', '12% All Stock Pellets', 32066.0), ('553', 89564, '70112', '12% All Stock Pellets', 4020.1)]
+    # Center justify the product name and change the font size to 16
+    centered_style = ParagraphStyle(name="centered", alignment=1, parent=styles["Normal"])
+    large_centered_style = ParagraphStyle(name="large_centered", alignment=1, fontSize=16, parent=styles["Normal"])
+    Story.append(Paragraph("Eqceed 14", large_centered_style))
+    Story.append(Spacer(1, 0.25 * inch))
 
-tags = [90.0, 155.6999969482422, 35.0, 90.0, 48.36065673828125, 75.0, 64.0, True, False, True, True, False, 201, True, True, True, False, 100.0, 141.6999969482422, 20.0, 40.0, 52.295082092285156, 40.0, 69.0, False, True, True, True, True, None, True, True, False, True, 100.0, 110.0, 119.80000305175781, 157.90000915527344, 5.0, 12.0, 40.0, 30.0, 0.0, 49.918033599853516, 20.0, 13.0, 0.0, 83.0, True, True, False, False, True, False, True, 0.0, 2.0]
+    # Center the purpose statement and remove "Purpose Statement:"
+    Story.append(Paragraph(f"For adult {species.lower()} in light to moderate work", centered_style))
+    Story.append(Spacer(1, 0.25 * inch))
 
-data_list_of_dictionaries = []
-for i in range(len(data)):
-    if i in [0,1]:
-        pelletmill = '1'
-        diespeed = tags[0]
-        feederspeed = tags[5]
-        steampct = tags[2]
-        conditionertemp = tags[1]
-        conditionerspeed = tags[3]
-        conditionerload = tags[4]
-        pelletmillload = tags[6]
-        doorclosed = tags[9]
-        if i in [0]:
-            slidegateopen = tags[15]
-            binactive = tags[7]
-        elif i in [1]:
-            slidegateopen = tags[16]
-            binactive = tags[8]
-    elif i in [2, 3]:
-        pelletmill = '2'
-        diespeed = tags[17]
-        feederspeed = tags[22]
-        steampct = tags[19]
-        conditionertemp = tags[18]
-        conditionerspeed = tags[20]
-        conditionerload = tags[21]
-        pelletmillload = tags[23]
-        doorclosed = tags[26]
-        if i in [2]:
-            slidegateopen = tags[31]
-            binactive = tags[24]
-        elif i in [3]:
-            slidegateopen = tags[33]
-            binactive = tags[25]
-    elif i in [4, 5]:
-        pelletmill = '3/4'
-        diespeed = mean([tags[34],tags[35]])
-        feederspeed = mean([tags[44],tags[45]])
-        steampct = mean([tags[38],tags[39]])
-        conditionertemp = mean([tags[36],tags[37]])
-        conditionerspeed = mean([tags[40],tags[41]])
-        conditionerload = mean([tags[42],tags[43]])
-        pelletmillload = mean([tags[46],tags[47]])
-        doorclosed = False if tags[48] == False or tags[49] == False else True
-        if i in [4]:
-            slidegateopen = tags[53]
-            binactive = True if tags[55] == 2.0 else False
-        elif i in [5]:
-            slidegateopen = tags[54]
-            binactive = True if tags[56] == 2.0 else False
-    elif i in [6, 7, 8, 9]:
-        pelletmill = '5'
-        diespeed = resp[0]['DieSpeed']
-        feederspeed = resp[0]['FeederSpeed']
-        steampct = resp[0]['SteamPct']
-        conditionertemp = resp[0]['DieSpeed']
-        conditionerspeed = resp[0]['ConditionerSpeed']
-        conditionerload = resp[0]['ConditionerLoad']
-        pelletmillload = resp[0]['PelletMillLoad']
-        doorclosed = resp[0]['DoorClosed']
-        if i in [6]:
-            slidegateopen = resp[0]['SlideGateOpen']
-            binactive = resp[0]['SlideGateOpen']
-        elif i in [7]:
-            slidegateopen =  resp[1]['SlideGateOpen']
-            binactive =  resp[1]['SlideGateOpen']
-        elif i in [8]:
-            slidegateopen =  resp[2]['SlideGateOpen']
-            binactive =  resp[2]['SlideGateOpen'] 
-        elif i in [9]:
-            slidegateopen =  resp[3]['SlideGateOpen']
-            binactive =  resp[3]['SlideGateOpen']
-    data_list_of_dictionaries.append(data_dict)
-for data_dict in data_list_of_dictionaries:
-    for key, value in data_dict.items():
-        print(f'{key}: {value}')
-    print()
+    # Center the guaranteed analysis section
+    Story.append(Paragraph("Guaranteed Analysis", centered_style))
+
+    # Create a table for the guaranteed analysis section
+    table = Table(data, colWidths=[2.5 * inch, 1.5 * inch])
+    table.setStyle(TableStyle([
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.black),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2)
+    ]))
+    Story.append(table)
+
+    Story.append(Spacer(1, 0.25 * inch))
+
+    # Center the ingredient statement and fully justify the ingredient list
+    Story.append(Paragraph("Ingredient Statement", centered_style))
+    
+    # Change the width of the ingredient list to 6 inches and remove line breaks
+    justified_style = ParagraphStyle(name="justified", alignment=4,
+                                     spaceBefore=6,
+                                     spaceAfter=6,
+                                     rightIndent=(doc.width-6*inch)/2,
+                                     leftIndent=(doc.width-6*inch)/2,
+                                     parent=styles["Normal"])
+    
+    Story.append(Paragraph("Wheat Middlings, Soybean Hulls,"
+                           "Dehydrated Alfalfa Meal, Cane Molasses,"
+                           "Calcium Carbonate, Salt",
+                           justified_style))
+    
+    Story.append(Spacer(1, 0.25 * inch))
+
+    # Center the directions for use
+    Story.append(Paragraph("Directions for Use", centered_style))
+    
+     # Change the width of the directions for use to 6 inches
+    directions_style = ParagraphStyle(name="directions",
+                                      spaceBefore=6,
+                                      spaceAfter=6,
+                                      rightIndent=(doc.width-6*inch)/2,
+                                      leftIndent=(doc.width-6*inch)/2,
+                                      parent=styles["Normal"])
+    
+    Story.append(Paragraph(f"Feed at a rate of 0.5 to 1.0 pounds per 100 pounds of body weight per day", directions_style))
+    Story.append(Spacer(1, 0.25 * inch))
+
+    # Update manufacturer information
+    Story.append(Paragraph("Manufactured by Tucker Milling LLC<br/>Guntersville, AL 35976", centered_style))
+    Story.append(Spacer(1, 0.25 * inch))
+    
+    # Center the net quantity statement
+    Story.append(Paragraph("Net Quantity Statement:<br/>Net Weight 50 lb (22.68 kg)", centered_style))
+
+    doc.build(Story)
+
+def on_select(event):
+    species = species_var.get()
+    generate_label(species)
+
+root = tk.Tk()
+root.geometry("300x200")
+
+species_var = tk.StringVar(value="Select a species")
+species_dropdown = ttk.Combobox(root, textvariable=species_var, state="readonly")
+species_dropdown["values"] = ["Horse", "Cattle", "Sheep"]
+species_dropdown.pack(pady=20)
+
+species_dropdown.bind("<<ComboboxSelected>>", on_select)
+
+root.mainloop()
