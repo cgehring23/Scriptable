@@ -84,6 +84,27 @@ def generate_label(item, salesQC):
                 self.drawString(1 * inch, 255 * mm, f"Master Record File")
             elif salesQC == 1:
                 self.drawString(1 * inch, 255 * mm, f"Sales and QC Product File")
+
+            folder_path = f"C:/Users/Public/{labelDict['item']}"
+            pattern = re.compile(rf"{labelDict['description']}_Feed_Label_v(\d+)\.pdf$")
+            max_version = 0
+            for filename in os.listdir(folder_path):
+                match = pattern.match(filename)
+                if match:
+                    version = int(match.group(1))
+                    if version > max_version:
+                        max_version = version + 1
+            if self._pageNumber == 1:
+                item_text = f"Version  {max_version}"
+                space_width = self.stringWidth(" ", "Helvetica-Bold", 10)
+                item_text_width = self.stringWidth(item_text, "Helvetica-Bold", 10)
+                text_width = item_text_width
+                x = self._pagesize[0] - text_width - 1 * inch
+
+                # Draw the item text in bold
+                self.setFont("Helvetica-Bold", 10)
+                self.drawString(x, 255 * mm, item_text)
+                x += item_text_width
             if self._pageNumber > 1:
                 item_text = labelDict['item']
                 description_text = labelDict['description']
@@ -1010,170 +1031,13 @@ def generate_label(item, salesQC):
     # Rebuild the document
     doc.build(Story, canvasmaker=NumberedCanvas)
 
-    # Execute the query
-    cursor.execute('SELECT [Item], [Species] FROM [Products].[dbo].[LabelInfo] ORDER BY [Species]')
-
-    # Fetch the results
-    results = cursor.fetchall()
-
-    # Create a dictionary of species and items
-    species_items = {}
-    for row in results:
-        item, species = row
-        if species not in species_items:
-            species_items[species] = []
-        species_items[species].append(item)
-
-    if salesQC == 1:
-        folder_path = "C:/Users/Public/"
-        output_folder = os.path.join(folder_path, "Sales_QC_Report")
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
-
-            # Find the next version number for the output PDF file
-            version = 1
-            while True:
-                output_file = os.path.join(output_folder, f"sales_QC_report_v{version}.pdf")
-                if not os.path.exists(output_file):
-                    break
-                version += 1
-
-                output_pdf = PdfMerger()
-
-                # Create a custom frame and page template for the species title page
-                frame = Frame(
-                inch, inch, letter[0] - 2 * inch, letter[1] - 2 * inch,
-                showBoundary=0,
-                topPadding=200,
-                bottomPadding=0,
-                leftPadding=0,
-                rightPadding=0
-                )
-
-                styles = getSampleStyleSheet()
-                style = styles["Heading1"]
-                style.fontSize = 48
-                style.alignment = TA_CENTER
-
-                page_template = PageTemplate(id="species_title", frames=[frame])
-
-                # Create a title page for the PDF
-                title_text = "Tucker Milling, LLC<br/><br/><br/>Product Guide"
-                title = Paragraph(title_text, style)
-                spacer = Spacer(0, 2 * inch)
-                temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
-                temp_doc.addPageTemplates([page_template])
-                temp_doc.build([title, spacer])
-                output_pdf.append("title_temp.pdf")
-
-                for species, items in species_items.items():
-                    # Remove any trailing "s" from the species name and add "Feeds" to the end
-                    if species != "Grains":
-                        species = species.rstrip("s") + " Feeds"
-                    # Create a temporary PDF with the species title page
-                    temp_filename = f"{species}_temp.pdf"
-                    temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
-                    temp_doc.addPageTemplates([page_template])
-                    temp_doc.build([Paragraph(species, style)])
-                    output_pdf.append(temp_filename)
-
-                    # Find the PDF report with the highest version number for each item
-                    for item in items:
-                        item_folder_name = f"{item} (QC)"
-                        item_folder = os.path.join(folder_path, item_folder_name)
-                        if os.path.isdir(item_folder):
-                            pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
-                            if pdf_files:
-                                # Sort the PDF files by version number
-                                pdf_files.sort(key=lambda f: int(f.split("v")[-1].split(".")[0]))
-                                # Get the PDF file with the highest version number
-                                pdf_file = pdf_files[-1]
-                                pdf_path = os.path.join(item_folder, pdf_file)
-
-                                # Merge the PDF file into the output PDF
-                                output_pdf.append(pdf_path)
-
-
-                    # Save the output PDF as sales_QC_report_vX.pdf in the C:\Users\Public\Sales_QC_Report directory
-                    output_pdf.write(output_file)
-
-    elif salesQC == 0:
-        folder_path = "C:/Users/Public/"
-        output_folder = os.path.join(folder_path, "Master_Record_File")
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
-
-        # Find the next version number for the output PDF file
-        version = 1
-        while True:
-            output_file = os.path.join(output_folder, f"Master_Record_File_v{version}.pdf")
-            if not os.path.exists(output_file):
-                break
-            version += 1
-
-        output_pdf = PdfMerger()
-
-        # Create a custom frame and page template for the species title page
-        frame = Frame(
-            inch, inch, letter[0] - 2 * inch, letter[1] - 2 * inch,
-            showBoundary=0,
-            topPadding=200,
-            bottomPadding=0,
-            leftPadding=0,
-            rightPadding=0
-        )
-
-        styles = getSampleStyleSheet()
-        style = styles["Heading1"]
-        style.fontSize = 48
-        style.alignment = TA_CENTER
-
-        page_template = PageTemplate(id="species_title", frames=[frame])
-
-        # Create a title page for the PDF
-        title_text = "Tucker Milling, LLC<br/><br/><br/>Master Record File"
-        title = Paragraph(title_text, style)
-        spacer = Spacer(0, 2 * inch)
-        temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
-        temp_doc.addPageTemplates([page_template])
-        temp_doc.build([title, spacer])
-        output_pdf.append("title_temp.pdf")
-
-        for species, items in species_items.items():
-            # Remove any trailing "s" from the species name and add "Feeds" to the end
-            if species != "Grains":
-                species = species.rstrip("s") + " Feeds"
-            # Create a temporary PDF with the species title page
-            temp_filename = f"{species}_temp.pdf"
-            temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
-            temp_doc.addPageTemplates([page_template])
-            temp_doc.build([Paragraph(species, style)])
-            output_pdf.append(temp_filename)
-
-            # Find all PDF files for each item that have a creation date within 1 year of the current date
-            for item in items:
-                item_folder = os.path.join(folder_path, item)
-                if os.path.isdir(item_folder):
-                    pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
-                    if pdf_files:
-                        # Get the current date and time
-                        now = datetime.now()
-                        # Get the cutoff date and time (1 year before the current date and time)
-                        cutoff = now - timedelta(days=365)
-
-                        # Filter the PDF files by creation date
-                        pdf_files = [f for f in pdf_files if datetime.fromtimestamp(os.path.getctime(os.path.join(item_folder, f))) >= cutoff]
-
-                        # Merge all remaining PDF files into the output PDF
-                        for pdf_file in pdf_files:
-                            pdf_path = os.path.join(item_folder, pdf_file)
-                            output_pdf.append(pdf_path)
-
-        # Save the output PDF as Master_Record_File_vX.pdf in the C:\Users\Public\Master_Record_File directory
-        output_pdf.write(output_file)
-
 item = '70112'
-salesQC = 0
+salesQC = 1
+
+if salesQC == 0:
+    print("Generating Master Record Files")
+elif salesQC == 1:
+    print("Generating Product Tags")
 
 try:
         output = subprocess.check_output(['python', 'C:\\Users\\TM - Curran\\Documents\\Python Scripts\\Bagging Scripts\\getrecipes1.py', item], stderr=subprocess.STDOUT)
@@ -1187,3 +1051,180 @@ print("Updated Recipes: ", recipes)
 
 for item in recipes:
     generate_label(item, salesQC)
+
+print("Finished with Individual Files")
+
+# Establish SQL connection
+server = r"TM-SQL1\BESTMIX" 
+database = r"Batching" 
+username = "curran" 
+password = "SuperLay22" 
+cnxn = pyodbc.connect("DRIVER={ODBC Driver 17 for SQL Server};SERVER="+server+"; DATABASE="+database+";UID="+username+";PWD="+ password,autocommit=True)
+cursor = cnxn.cursor()
+
+# Execute the query
+cursor.execute('SELECT [Item], [Species] FROM [Products].[dbo].[LabelInfo] ORDER BY [Species]')
+
+# Fetch the results
+results = cursor.fetchall()
+
+
+
+# Create a dictionary of species and items
+species_items = {}
+for row in results:
+    item, species = row
+    if species not in species_items:
+        species_items[species] = []
+    species_items[species].append(item)
+
+
+
+if salesQC == 1:
+    folder_path = "C:/Users/Public/"
+    output_folder = os.path.join(folder_path, "Sales_QC_Report")
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    # Find the next version number for the output PDF file
+    version = 1
+    while True:
+        output_file = os.path.join(output_folder, f"sales_QC_report_v{version}.pdf")
+        if not os.path.exists(output_file):
+            break
+        version += 1
+
+    output_pdf = PdfMerger()
+
+    # Create a custom frame and page template for the species title page
+    frame = Frame(
+    inch, inch, letter[0] - 2 * inch, letter[1] - 2 * inch,
+    showBoundary=0,
+    topPadding=200,
+    bottomPadding=0,
+    leftPadding=0,
+    rightPadding=0
+    )
+
+    styles = getSampleStyleSheet()
+    style = styles["Heading1"]
+    style.fontSize = 48
+    style.alignment = TA_CENTER
+
+    page_template = PageTemplate(id="species_title", frames=[frame])
+
+    # Create a title page for the PDF
+    title_text = "Tucker Milling, LLC<br/><br/><br/>Product Guide"
+    title = Paragraph(title_text, style)
+    spacer = Spacer(0, 2 * inch)
+    temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
+    temp_doc.addPageTemplates([page_template])
+    temp_doc.build([title, spacer])
+    output_pdf.append("title_temp.pdf")
+
+    for species, items in species_items.items():
+        # Remove any trailing "s" from the species name and add "Feeds" to the end
+        if species != "Grains":
+            species = species.rstrip("s") + " Feeds"
+        # Create a temporary PDF with the species title page
+        temp_filename = f"{species}_temp.pdf"
+        temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
+        temp_doc.addPageTemplates([page_template])
+        temp_doc.build([Paragraph(species, style)])
+        output_pdf.append(temp_filename)
+        print(species_items)
+        # Find the PDF report with the highest version number for each item
+        for item in items:
+            item_folder_name = f"{item} (QC)"
+            item_folder = os.path.join(folder_path, item_folder_name)
+            if os.path.isdir(item_folder):
+                pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
+                if pdf_files:
+                    # Sort the PDF files by version number
+                    pdf_files.sort(key=lambda f: int(f.split("v")[-1].split(".")[0]))
+                    # Get the PDF file with the highest version number
+                    pdf_file = pdf_files[-1]
+                    pdf_path = os.path.join(item_folder, pdf_file)
+
+                    # Merge the PDF file into the output PDF
+                    output_pdf.append(pdf_path)
+
+
+    # Save the output PDF as sales_QC_report_vX.pdf in the C:\Users\Public\Sales_QC_Report directory
+    output_pdf.write(output_file)
+
+elif salesQC == 0:
+    folder_path = "C:/Users/Public/"
+    output_folder = os.path.join(folder_path, "Master_Record_File")
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    # Find the next version number for the output PDF file
+    version = 1
+    while True:
+        output_file = os.path.join(output_folder, f"Master_Record_File_v{version}.pdf")
+        if not os.path.exists(output_file):
+            break
+        version += 1
+
+    output_pdf = PdfMerger()
+
+    # Create a custom frame and page template for the species title page
+    frame = Frame(
+        inch, inch, letter[0] - 2 * inch, letter[1] - 2 * inch,
+        showBoundary=0,
+        topPadding=200,
+        bottomPadding=0,
+        leftPadding=0,
+        rightPadding=0
+    )
+
+    styles = getSampleStyleSheet()
+    style = styles["Heading1"]
+    style.fontSize = 48
+    style.alignment = TA_CENTER
+
+    page_template = PageTemplate(id="species_title", frames=[frame])
+
+    # Create a title page for the PDF
+    title_text = "Tucker Milling, LLC<br/><br/><br/>Master Record File"
+    title = Paragraph(title_text, style)
+    spacer = Spacer(0, 2 * inch)
+    temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
+    temp_doc.addPageTemplates([page_template])
+    temp_doc.build([title, spacer])
+    output_pdf.append("title_temp.pdf")
+
+    
+    for species, items in species_items.items():
+        # Remove any trailing "s" from the species name and add "Feeds" to the end
+        if species != "Grains":
+            species = species.rstrip("s") + " Feeds"
+        # Create a temporary PDF with the species title page
+        temp_filename = f"{species}_temp.pdf"
+        temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
+        temp_doc.addPageTemplates([page_template])
+        temp_doc.build([Paragraph(species, style)])
+        output_pdf.append(temp_filename)
+        
+        # Find all PDF files for each item that have a creation date within 1 year of the current date
+        for item in items:
+            item_folder = os.path.join(folder_path, item)
+            if os.path.isdir(item_folder):
+                pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
+                if pdf_files:
+                    # Get the current date and time
+                    now = datetime.now()
+                    # Get the cutoff date and time (1 year before the current date and time)
+                    cutoff = now - timedelta(days=365)
+
+                    # Filter the PDF files by creation date
+                    pdf_files = [f for f in pdf_files if datetime.fromtimestamp(os.path.getctime(os.path.join(item_folder, f))) >= cutoff]
+
+                    # Merge all remaining PDF files into the output PDF
+                    for pdf_file in pdf_files:
+                        pdf_path = os.path.join(item_folder, pdf_file)
+                        output_pdf.append(pdf_path)
+
+    # Save the output PDF as Master_Record_File_vX.pdf in the C:\Users\Public\Master_Record_File directory
+    output_pdf.write(output_file)
