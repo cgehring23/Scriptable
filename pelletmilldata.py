@@ -1,3 +1,57 @@
+import subprocess
+import os, os.path
+import sys
+
+def launchWithoutConsole(command, args):
+    """Launches 'command' windowless and waits until finished"""
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    return subprocess.Popen([command] + args, startupinfo=startupinfo).wait()
+
+import wx
+import wx.lib.agw.aui as aui
+
+class MyFrame(wx.Frame):
+    def __init__(self):
+        super().__init__(None, title="Enter a value")
+        self._mgr = aui.AuiManager(self)
+
+        # Create the widgets
+        label = wx.StaticText(self, label="Enter a value:")
+        self.entry = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        submit_button = wx.Button(self, label="Submit")
+
+        # Bind the button event to the on_submit function
+        submit_button.Bind(wx.EVT_BUTTON, self.on_submit)
+
+        # Bind the enter key event to the on_submit function
+        self.entry.Bind(wx.EVT_TEXT_ENTER, self.on_submit)
+
+        # Add the widgets to the AuiManager
+        self._mgr.AddPane(label, aui.AuiPaneInfo().CenterPane())
+        self._mgr.AddPane(self.entry, aui.AuiPaneInfo().CenterPane())
+        self._mgr.AddPane(submit_button, aui.AuiPaneInfo().CenterPane())
+        self._mgr.Update()
+
+    def on_submit(self, event):
+        global my_variable
+        my_variable = self.entry.GetValue()
+        self.Close()
+
+# Run the GUI
+app = wx.App()
+frame = MyFrame()
+frame.Show()
+app.MainLoop()
+
+
+
+print(f"The recipe is: {my_variable}")
+
+
+item = my_variable
+
+
 import os
 import sys
 import json
@@ -43,14 +97,13 @@ import xml.dom
 import ast
 from io import BytesIO
 from PIL import Image
-from PyPDF2 import PdfReader, PdfMerger
-
+from PyPDF2 import PdfReader, PdfMerger, PdfWriter
 
 pd.set_option('display.max_colwidth', 200)
 pd.set_option('display.max_columns',20)
 
+
 def generate_label(item, salesQC):
-    
     class NumberedCanvas(canvas.Canvas):
         def __init__(self, *args, **kwargs):
             canvas.Canvas.__init__(self, *args, **kwargs)
@@ -74,37 +127,49 @@ def generate_label(item, salesQC):
             page_number_text = "Page %d of %d" % (self._pageNumber, page_count)
             page_number_width = self.stringWidth(page_number_text, "Helvetica", 10)
             x = self._pagesize[0] - page_number_width - 1 * inch
-            self.drawString(x, 20 * mm, page_number_text)
+            self.drawString(x, 25 * mm, page_number_text)
             self.draw_master_record_info(x, self._pagesize, page_number_width, self._pageNumber)
             self.draw_current_date_time()
 
         def draw_master_record_info(self, x, _pagesize, page_number_width, _pageNumber):
             self.setFont("Helvetica-Bold", 10)
-            if salesQC == 0:
-                self.drawString(1 * inch, 255 * mm, f"Master Record File")
-            elif salesQC == 1:
+            if salesQC == 1:
                 self.drawString(1 * inch, 255 * mm, f"Sales and QC Product File")
+            elif salesQC == 0:
+                self.drawString(1 * inch, 255 * mm, f"Master Record File")
 
-            folder_path = f"C:/Users/Public/{labelDict['item']}"
-            pattern = re.compile(rf"{labelDict['description']}_Feed_Label_v(\d+)\.pdf$")
-            max_version = 0
-            for filename in os.listdir(folder_path):
-                match = pattern.match(filename)
-                if match:
-                    version = int(match.group(1))
-                    if version > max_version:
-                        max_version = version + 1
-            if self._pageNumber == 1:
-                item_text = f"Version  {max_version}"
-                space_width = self.stringWidth(" ", "Helvetica-Bold", 10)
-                item_text_width = self.stringWidth(item_text, "Helvetica-Bold", 10)
-                text_width = item_text_width
-                x = self._pagesize[0] - text_width - 1 * inch
+                folder_path = f"C:/Users/Public/{labelDict['item']}"
+                pattern = re.compile(rf"{labelDict['description']}_Feed_Label_v(\d+)\.pdf$")
+                max_version = 1
+                for filename in os.listdir(folder_path):
+                    match = pattern.match(filename)
+                    if match:
+                        version = int(match.group(1))
+                        if version >= max_version:
+                            max_version = version + 1
+                if self._pageNumber == 1:
+                    current_date = datetime.now()
+                    formatted_date = current_date.strftime('%B %d, %Y')
+                    version_text = f" Version {max_version}"
+                    item_text = formatted_date + version_text
 
-                # Draw the item text in bold
-                self.setFont("Helvetica-Bold", 10)
-                self.drawString(x, 255 * mm, item_text)
-                x += item_text_width
+                    space_width = self.stringWidth(" ", "Helvetica-Bold", 10)
+                    formatted_date_width = self.stringWidth(formatted_date, "Helvetica-Bold", 10)
+                    version_text_width = self.stringWidth(version_text, "Helvetica", 10)
+                    text_width = formatted_date_width + space_width + version_text_width
+
+                    x = self._pagesize[0] - text_width - 1 * inch
+
+                    # Draw the formatted date in bold
+                    self.setFont("Helvetica-Bold", 10)
+                    self.drawString(x, 255 * mm, formatted_date)
+
+                    x += formatted_date_width + space_width
+
+                    # Draw the version number without bold
+                    self.setFont("Helvetica", 10)
+                    self.drawString(x, 255 * mm, version_text)
+
             if self._pageNumber > 1:
                 item_text = labelDict['item']
                 description_text = labelDict['description']
@@ -123,14 +188,14 @@ def generate_label(item, salesQC):
                 self.setFont("Helvetica", 10)
                 self.drawString(x, 255 * mm, description_text)
             self.setFont("Helvetica", 10)
-            self.drawString(1 * inch, 20 * mm, "Tucker Milling, LLC")
+            self.drawString(1 * inch, 25 * mm, "Tucker Milling, LLC")
 
         def draw_current_date_time(self):
             now = datetime.now()
             formatted_date = now.strftime("%B %d, %Y at %I:%M %p")
             self.setFont("Helvetica", 10)
             x = self._pagesize[0] / 2
-            self.drawCentredString(x, 20 * mm, formatted_date)
+            self.drawCentredString(x, 25 * mm, formatted_date)
 
     try:
         output = subprocess.check_output(['python', 'C:\\Users\\TM - Curran\\Documents\\Python Scripts\\Bagging Scripts\\getrecipes.py', item], stderr=subprocess.STDOUT)
@@ -146,8 +211,7 @@ def generate_label(item, salesQC):
        
         # Convert the JSON string back into a DataFrame
         df5 = pd.read_json(output.decode('utf-8'), orient='records')
- 
-        
+
     except subprocess.CalledProcessError as e:
         print(e.output.decode('utf-8'))
 
@@ -159,8 +223,6 @@ def generate_label(item, salesQC):
     password = "SuperLay22" 
     cnxn = pyodbc.connect("DRIVER={ODBC Driver 17 for SQL Server};SERVER="+server+"; DATABASE="+database+";UID="+username+";PWD="+ password,autocommit=True)
     cursor = cnxn.cursor()
-
-
 
     cursor.execute("SELECT [Description], [Ingredient List] FROM [Bagging].[dbo].[RecipeLists] WHERE [Recipe] = ?", item)
     ingredientList = cursor.fetchall()
@@ -205,6 +267,7 @@ def generate_label(item, salesQC):
         "weight": datadict[0][columns.index('Weight')],
         "qr":datadict[0][columns.index('qr')],
         "bagIngredientList":datadict[0][columns.index('BagIngredients')],
+        "alternate":datadict[0][columns.index('alternate')],
     }
 
     # Query the nutrientvalues table to get the actual values for each nutrient
@@ -225,7 +288,7 @@ def generate_label(item, salesQC):
         'Sodium (min)', 'Mg', 'Potassium (min)', 'Copper (min)', 'Selenium (min)', 'Zinc (min)', 'Vitamin A (min)']:
         if description not in nutrient_values:
             nutrient_values[description] = None
-
+    print(f"species: {labelDict['species']}, item: {labelDict['item']}, alternate: {labelDict['alternate']}")
     # Determine the nutrient requirements based on the selected species
     if labelDict['species'] == "Horses":
         data = [
@@ -242,8 +305,10 @@ def generate_label(item, salesQC):
     ["Vitamin A (min)", f"{labelDict['vitaminA']:,} IU/lb" if labelDict['vitaminA'] is not None else '', f"{nutrient_values['Vitamin A (min)']:,.0f} IU/lb"]
                 ]
     elif labelDict['species'] == "All Stock":
-        data = [
+        if labelDict['alternate'] == 1: #71216
+            data = [
     ["Crude Protein (min)", f"{labelDict['crudeProtein']}%" if labelDict['crudeProtein'] is not None else '', f" {round(nutrient_values['Crude Protein (min)'], 1)} %"],
+    ["Lysine (min)", f"{labelDict['lysine']}%" if labelDict['lysine'] is not None else '', f" {round(nutrient_values['Lysine (min)'], 1)} %"],
     ["Crude Fat (min)", f"{labelDict['crudeFat']}%" if labelDict['crudeFat'] is not None else '', f" {round(nutrient_values['Crude Fat (min)'], 1)} %"],
     ["Crude Fiber (max)", f"{labelDict['crudeFiber']}%" if labelDict['crudeFiber'] is not None else '', f" {round(nutrient_values['Crude Fiber (max)'], 1)} %"],
     ["Acid Detergent Fiber (ADF) (max)", f"{labelDict['adf']}%" if labelDict['adf'] is not None else '', f" {round(nutrient_values['ADF (max)'], 1)} %"],
@@ -252,12 +317,29 @@ def generate_label(item, salesQC):
     ["Phosphorus (min)", f"{labelDict['phosphorus']}%" if labelDict['phosphorus'] is not None else '', f" {round(nutrient_values['Phosphorus (min)'], 1)} %"],
     ["Salt (min/max)", f"{labelDict['saltMin']}%/{labelDict['saltMax']}%" if labelDict['saltMin'] is not None and labelDict['saltMax'] is not None else '', f" {round(nutrient_values['Salt (min)'], 1)} %"],
     ["Sodium (min/max)", f"{labelDict['sodiumMin']}%/{labelDict['sodiumMax']}%" if labelDict['sodiumMin'] is not None and labelDict['sodiumMax'] is not None else '', f" {round(nutrient_values['Sodium (min)'], 1)} %"],
-    ["Potassium (min)", f"{labelDict['potassium']}%" if labelDict['potassium'] is not None else '', f" {round(nutrient_values['Salt (min)'], 1)} %"],
-    ["Copper (min)", f"{labelDict['copperMin']} ppm" if labelDict['copperMin'] is not None else '', f" {round(nutrient_values['Copper (min)'], 1)} ppm"],
+    ["Magnesium (min)", f"{labelDict['magnesium']}%" if labelDict['magnesium'] is not None else '', f" {round(nutrient_values['Salt (min)'], 1)} %"],
+    ["Potassium (min)", f"{labelDict['potassium']}%" if labelDict['potassium'] is not None else '', f" {round(nutrient_values['Potassium (min)'], 1)} %"],
     ["Selenium (min)", f"{labelDict['selenium']} ppm" if labelDict['selenium'] is not None else '', f" {round(nutrient_values['Selenium (min)'], 1)} ppm"],
     ["Zinc (min)", f"{labelDict['zinc']} ppm" if labelDict['zinc'] is not None else '', f" {round(nutrient_values['Zinc (min)'], 1)} ppm"],
     ["Vitamin A (min)", f"{labelDict['vitaminA']:,} IU/lb" if labelDict['vitaminA'] is not None else '', f"{nutrient_values['Vitamin A (min)']:,.0f} IU/lb"]
             ]
+        else:
+            data = [
+        ["Crude Protein (min)", f"{labelDict['crudeProtein']}%" if labelDict['crudeProtein'] is not None else '', f" {round(nutrient_values['Crude Protein (min)'], 1)} %"],
+        ["Crude Fat (min)", f"{labelDict['crudeFat']}%" if labelDict['crudeFat'] is not None else '', f" {round(nutrient_values['Crude Fat (min)'], 1)} %"],
+        ["Crude Fiber (max)", f"{labelDict['crudeFiber']}%" if labelDict['crudeFiber'] is not None else '', f" {round(nutrient_values['Crude Fiber (max)'], 1)} %"],
+        ["Acid Detergent Fiber (ADF) (max)", f"{labelDict['adf']}%" if labelDict['adf'] is not None else '', f" {round(nutrient_values['ADF (max)'], 1)} %"],
+        ["Neutral Detergent Fiber (NDF) (max)", f"{labelDict['ndf']}%" if labelDict['ndf'] is not None else '', f" {round(nutrient_values['NDF (max)'], 1)} %"],
+        ["Calcium (min/max)", f"{labelDict['calciumMin']}%/{labelDict['calciumMax']}%" if labelDict['calciumMin'] is not None and labelDict['calciumMax'] is not None else '', f" {round(nutrient_values['Calcium (min)'], 1)} %"],
+        ["Phosphorus (min)", f"{labelDict['phosphorus']}%" if labelDict['phosphorus'] is not None else '', f" {round(nutrient_values['Phosphorus (min)'], 1)} %"],
+        ["Salt (min/max)", f"{labelDict['saltMin']}%/{labelDict['saltMax']}%" if labelDict['saltMin'] is not None and labelDict['saltMax'] is not None else '', f" {round(nutrient_values['Salt (min)'], 1)} %"],
+        ["Sodium (min/max)", f"{labelDict['sodiumMin']}%/{labelDict['sodiumMax']}%" if labelDict['sodiumMin'] is not None and labelDict['sodiumMax'] is not None else '', f" {round(nutrient_values['Sodium (min)'], 1)} %"],
+        ["Potassium (min)", f"{labelDict['potassium']}%" if labelDict['potassium'] is not None else '', f" {round(nutrient_values['Potassium (min)'], 1)} %"],
+        ["Copper (min/max)", f"{labelDict['copperMin']} ppm/{labelDict['copperMax']} ppm" if labelDict['copperMin'] is not None and labelDict['copperMax'] is not None else '', f" {round(nutrient_values['Copper (min)'], 1)} ppm"],
+        ["Selenium (min)", f"{labelDict['selenium']} ppm" if labelDict['selenium'] is not None else '', f" {round(nutrient_values['Selenium (min)'], 1)} ppm"],
+        ["Zinc (min)", f"{labelDict['zinc']} ppm" if labelDict['zinc'] is not None else '', f" {round(nutrient_values['Zinc (min)'], 1)} ppm"],
+        ["Vitamin A (min)", f"{labelDict['vitaminA']:,} IU/lb" if labelDict['vitaminA'] is not None else '', f"{nutrient_values['Vitamin A (min)']:,.0f} IU/lb"]
+                ]
     elif labelDict['species'] == "Swine":
         data = [
     ["Crude Protein (min)", f"{labelDict['crudeProtein']}%" if labelDict['crudeProtein'] is not None else '', f" {round(nutrient_values['Crude Protein (min)'], 1)} %"],
@@ -739,9 +821,11 @@ def generate_label(item, salesQC):
 
     if salesQC == 1:
         # Remove calculated values from data
+        print(data)
         data = [row[:2] for row in data]
         data.insert(0, [""])
     else:
+        print(data)
         data.insert(0, ["", "Guaranteed", "Calculated"])
 
 
@@ -865,7 +949,6 @@ def generate_label(item, salesQC):
         # Get the distinct recipes from the DataFrame
         distinct_recipes = df5['Recipe'].unique()
         distinct_recipes = [str(x) for x in distinct_recipes.tolist()]
-        print("distinct recipes: ", distinct_recipes)
 
         # List to store the tables
         table_list = []
@@ -883,7 +966,7 @@ def generate_label(item, salesQC):
                 mixerRecipe = results[0][4]
                 recipe_type = results[0][5]
 
-            print(descriptions, f"${recipeCost:,.2f}")
+            #print(descriptions, f"${recipeCost:,.2f}")
             Story.append(Spacer(1, 0.25 * inch))
             Story.append(Spacer(1, 0.25 * inch))
         # Add the recipe number and type to the top of the page
@@ -898,7 +981,7 @@ def generate_label(item, salesQC):
                 # Add other style options if needed
             ]))
             Story.append(table)
-
+            
             df5['Recipe'] = df5['Recipe'].astype(str)
 
             # Filter the DataFrame for the current recipe
@@ -981,6 +1064,8 @@ def generate_label(item, salesQC):
                 # Add other style options if needed
             ]))
 
+            print(f"Distinct Recipes: , {recipe}:{distinct_recipes}")
+
             # Add the table to the story
             Story.append(table)
             Story.append(Spacer(1, 0.25 * inch))
@@ -1001,43 +1086,47 @@ def generate_label(item, salesQC):
         except UnboundLocalError as e:
             pass
 
-        # Find the highest version number among the PDF files in the folder
-        folder_path = f"C:/Users/Public/{labelDict['item']}"
-        pattern = re.compile(rf"{labelDict['description']}_Feed_Label_v(\d+)\.pdf$")
-        max_version = 0
-        for filename in os.listdir(folder_path):
-            match = pattern.match(filename)
-            if match:
-                version = int(match.group(1))
-                if version > max_version:
-                    max_version = version
-
-        # Read the binary data of the PDF file with the highest version number
-        pdf_path = f"{folder_path}/{labelDict['description']}_Feed_Label_v{max_version}.pdf"
-        try:
-            with open(pdf_path, "rb") as f:
-                pdf_data = f.read()
-                # Insert or replace the binary data into a BLOB column
-                cursor.execute("""
-                    IF EXISTS (SELECT * FROM [Products].[dbo].[LabelInfo] WHERE Item = ?)
-                    UPDATE [Products].[dbo].[LabelInfo] SET [BlobColumn] = ? WHERE Item = ?
-                    ELSE
-                    INSERT INTO [Products].[dbo].[LabelInfo] (Item, BlobColumn) VALUES (?, ?)
-                    """, (labelDict['item'], pyodbc.Binary(pdf_data), labelDict['item'], labelDict['item'], pyodbc.Binary(pdf_data)))
-        except FileNotFoundError:
-            # Handle the error here
-            print(f"{pdf_path} not found")
-
     # Rebuild the document
     doc.build(Story, canvasmaker=NumberedCanvas)
 
-item = '70112'
-salesQC = 1
+import io
+from reportlab.pdfbase.pdfmetrics import stringWidth
 
-if salesQC == 0:
-    print("Generating Master Record Files")
-elif salesQC == 1:
-    print("Generating Product Tags")
+def add_page_number(canvas, doc, page_size, page_number):
+    """
+    Function to add page numbers to each page.
+    """
+    text = "Page %s" % page_number
+    canvas.setFont("Helvetica-Bold", 10)
+    text_width = stringWidth(text, "Helvetica-Bold", 10)
+    canvas.drawCentredString(page_size[0] / 2, 0.75 * inch, text)
+
+
+def add_page_numbers_to_pdf(input_path, output_path, page_size):
+    """
+    Function to add page numbers to the selected PDF files.
+    """
+    reader = PdfReader(input_path)
+    writer = PdfWriter()
+
+    # Iterate through each page of the PDF
+    for page_number, page in enumerate(reader.pages, start=1):
+        packet = io.BytesIO()
+        can = canvas.Canvas(packet, pagesize=page_size)
+        add_page_number(can, can, page_size, page_number)
+        can.save()
+
+        # Move to the beginning of the StringIO buffer
+        packet.seek(0)
+        new_pdf = PdfReader(packet)
+
+        # Merge the page from the original PDF and the page with the page number
+        page.merge_page(new_pdf.pages[0])
+        writer.add_page(page)
+
+    # Write the output PDF file
+    with open(output_path, "wb") as f:
+        writer.write(f)
 
 try:
         output = subprocess.check_output(['python', 'C:\\Users\\TM - Curran\\Documents\\Python Scripts\\Bagging Scripts\\getrecipes1.py', item], stderr=subprocess.STDOUT)
@@ -1049,10 +1138,6 @@ except subprocess.CalledProcessError as e:
 
 print("Updated Recipes: ", recipes)
 
-for item in recipes:
-    generate_label(item, salesQC)
-
-print("Finished with Individual Files")
 
 # Establish SQL connection
 server = r"TM-SQL1\BESTMIX" 
@@ -1068,8 +1153,6 @@ cursor.execute('SELECT [Item], [Species] FROM [Products].[dbo].[LabelInfo] ORDER
 # Fetch the results
 results = cursor.fetchall()
 
-
-
 # Create a dictionary of species and items
 species_items = {}
 for row in results:
@@ -1080,151 +1163,165 @@ for row in results:
 
 
 
-if salesQC == 1:
-    folder_path = "C:/Users/Public/"
-    output_folder = os.path.join(folder_path, "Sales_QC_Report")
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+for salesQC in [0, 1]:
+    for item in recipes:
+        try:
+            generate_label(item, salesQC)
+        except IndexError:                                                                
+            print(item, "has not been added to the LabelInfo table")
+for salesQC in [0, 1]:
+    if salesQC == 0:
+        print("Generating Master Record Files")
+        folder_path = "C:/Users/Public/"
+        output_folder = os.path.join(folder_path, "Master_Record_File")
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
 
-    # Find the next version number for the output PDF file
-    version = 1
-    while True:
-        output_file = os.path.join(output_folder, f"sales_QC_report_v{version}.pdf")
-        if not os.path.exists(output_file):
-            break
-        version += 1
+        # Find the next version number for the output PDF file
+        version = 1
+        while True:
+            output_file = os.path.join(output_folder, f"Master_Record_File_v{version}.pdf")
+            if not os.path.exists(output_file):
+                break
+            version += 1
 
-    output_pdf = PdfMerger()
+        output_pdf = PdfMerger()
 
-    # Create a custom frame and page template for the species title page
-    frame = Frame(
-    inch, inch, letter[0] - 2 * inch, letter[1] - 2 * inch,
-    showBoundary=0,
-    topPadding=200,
-    bottomPadding=0,
-    leftPadding=0,
-    rightPadding=0
-    )
+        # Create a custom frame and page template for the species title page
+        frame = Frame(
+            inch, inch, letter[0] - 2 * inch, letter[1] - 2 * inch,
+            showBoundary=0,
+            topPadding=200,
+            bottomPadding=0,
+            leftPadding=0,
+            rightPadding=0
+        )
 
-    styles = getSampleStyleSheet()
-    style = styles["Heading1"]
-    style.fontSize = 48
-    style.alignment = TA_CENTER
+        styles = getSampleStyleSheet()
+        style = styles["Heading1"]
+        style.fontSize = 48
+        style.alignment = TA_CENTER
 
-    page_template = PageTemplate(id="species_title", frames=[frame])
+        page_template = PageTemplate(id="species_title", frames=[frame])
 
-    # Create a title page for the PDF
-    title_text = "Tucker Milling, LLC<br/><br/><br/>Product Guide"
-    title = Paragraph(title_text, style)
-    spacer = Spacer(0, 2 * inch)
-    temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
-    temp_doc.addPageTemplates([page_template])
-    temp_doc.build([title, spacer])
-    output_pdf.append("title_temp.pdf")
-
-    for species, items in species_items.items():
-        # Remove any trailing "s" from the species name and add "Feeds" to the end
-        if species != "Grains":
-            species = species.rstrip("s") + " Feeds"
-        # Create a temporary PDF with the species title page
-        temp_filename = f"{species}_temp.pdf"
-        temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
+        # Create a title page for the PDF
+        title_text = "Tucker Milling, LLC<br/><br/><br/>Master Record File"
+        title = Paragraph(title_text, style)
+        spacer = Spacer(0, 2 * inch)
+        temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
         temp_doc.addPageTemplates([page_template])
-        temp_doc.build([Paragraph(species, style)])
-        output_pdf.append(temp_filename)
-        print(species_items)
-        # Find the PDF report with the highest version number for each item
-        for item in items:
-            item_folder_name = f"{item} (QC)"
-            item_folder = os.path.join(folder_path, item_folder_name)
-            if os.path.isdir(item_folder):
-                pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
-                if pdf_files:
-                    # Sort the PDF files by version number
-                    pdf_files.sort(key=lambda f: int(f.split("v")[-1].split(".")[0]))
-                    # Get the PDF file with the highest version number
-                    pdf_file = pdf_files[-1]
-                    pdf_path = os.path.join(item_folder, pdf_file)
+        temp_doc.build([title, spacer])
+        output_pdf.append("title_temp.pdf")
 
-                    # Merge the PDF file into the output PDF
-                    output_pdf.append(pdf_path)
+        # Generate the output PDF file path with the appropriate version number
+        output_pdf_path = os.path.join(output_folder, f"Master_Record_File_v{version}.pdf")
 
+        for species, items in species_items.items():
+            # Remove any trailing "s" from the species name and add "Feeds" to the end
+            if species != "Grains":
+                species = species.rstrip("s") + " Feeds"
+            # Create a temporary PDF with the species title page
+            temp_filename = f"{species}_temp.pdf"
+            temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
+            temp_doc.addPageTemplates([page_template])
+            temp_doc.build([Paragraph(species, style)])
+            output_pdf.append(temp_filename)
+            
+            # Find all PDF files for each item that have a creation date within 1 year of the current date
+            for item in items:
+                item_folder = os.path.join(folder_path, item)
+                if os.path.isdir(item_folder):
+                    pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
+                    if pdf_files:
+                        # Get the current date and time
+                        now = datetime.now()
+                        # Get the cutoff date and time (1 year before the current date and time)
+                        cutoff = now - timedelta(days=365)
 
-    # Save the output PDF as sales_QC_report_vX.pdf in the C:\Users\Public\Sales_QC_Report directory
-    output_pdf.write(output_file)
+                        # Filter the PDF files by creation date
+                        pdf_files = [f for f in pdf_files if datetime.fromtimestamp(os.path.getctime(os.path.join(item_folder, f))) >= cutoff]
 
-elif salesQC == 0:
-    folder_path = "C:/Users/Public/"
-    output_folder = os.path.join(folder_path, "Master_Record_File")
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+                        # Merge all remaining PDF files into the output PDF
+                        for pdf_file in pdf_files:
+                            pdf_path = os.path.join(item_folder, pdf_file)
+                            output_pdf.append(pdf_path)
 
-    # Find the next version number for the output PDF file
-    version = 1
-    while True:
-        output_file = os.path.join(output_folder, f"Master_Record_File_v{version}.pdf")
-        if not os.path.exists(output_file):
-            break
-        version += 1
+        # Save the output PDF as Master_Record_File_vX.pdf in the C:\Users\Public\Master_Record_File directory
+        output_pdf.write(output_file)
 
-    output_pdf = PdfMerger()
+        # Close the output PDF file
+        output_pdf.close()
+    
+        # Add page numbers to the output PDF
+        add_page_numbers_to_pdf(output_pdf_path, output_pdf_path, letter)
 
-    # Create a custom frame and page template for the species title page
-    frame = Frame(
+    elif salesQC == 1:
+        print("Generating Product Tags")
+        folder_path = "C:/Users/Public/"
+        output_folder = os.path.join(folder_path, "Sales_QC_Tags")
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+
+       
+        output_file = os.path.join(output_folder, "sales_QC_tags.pdf")
+
+        output_pdf = PdfMerger()
+
+        # Create a custom frame and page template for the species title page
+        frame = Frame(
         inch, inch, letter[0] - 2 * inch, letter[1] - 2 * inch,
         showBoundary=0,
         topPadding=200,
         bottomPadding=0,
         leftPadding=0,
         rightPadding=0
-    )
+        )
 
-    styles = getSampleStyleSheet()
-    style = styles["Heading1"]
-    style.fontSize = 48
-    style.alignment = TA_CENTER
+        styles = getSampleStyleSheet()
+        style = styles["Heading1"]
+        style.fontSize = 48
+        style.alignment = TA_CENTER
 
-    page_template = PageTemplate(id="species_title", frames=[frame])
+        page_template = PageTemplate(id="species_title", frames=[frame])
 
-    # Create a title page for the PDF
-    title_text = "Tucker Milling, LLC<br/><br/><br/>Master Record File"
-    title = Paragraph(title_text, style)
-    spacer = Spacer(0, 2 * inch)
-    temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
-    temp_doc.addPageTemplates([page_template])
-    temp_doc.build([title, spacer])
-    output_pdf.append("title_temp.pdf")
-
-    
-    for species, items in species_items.items():
-        # Remove any trailing "s" from the species name and add "Feeds" to the end
-        if species != "Grains":
-            species = species.rstrip("s") + " Feeds"
-        # Create a temporary PDF with the species title page
-        temp_filename = f"{species}_temp.pdf"
-        temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
+        # Create a title page for the PDF
+        title_text = "Tucker Milling, LLC<br/><br/><br/>Product Guide"
+        title = Paragraph(title_text, style)
+        spacer = Spacer(0, 2 * inch)
+        temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
         temp_doc.addPageTemplates([page_template])
-        temp_doc.build([Paragraph(species, style)])
-        output_pdf.append(temp_filename)
-        
-        # Find all PDF files for each item that have a creation date within 1 year of the current date
-        for item in items:
-            item_folder = os.path.join(folder_path, item)
-            if os.path.isdir(item_folder):
-                pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
-                if pdf_files:
-                    # Get the current date and time
-                    now = datetime.now()
-                    # Get the cutoff date and time (1 year before the current date and time)
-                    cutoff = now - timedelta(days=365)
+        temp_doc.build([title, spacer])
+        output_pdf.append("title_temp.pdf")
 
-                    # Filter the PDF files by creation date
-                    pdf_files = [f for f in pdf_files if datetime.fromtimestamp(os.path.getctime(os.path.join(item_folder, f))) >= cutoff]
+        for species, items in species_items.items():
+            # Remove any trailing "s" from the species name and add "Feeds" to the end
+            if species != "Grains":
+                species = species.rstrip("s") + " Feeds"
+            # Create a temporary PDF with the species title page
+            temp_filename = f"{species}_temp.pdf"
+            temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
+            temp_doc.addPageTemplates([page_template])
+            temp_doc.build([Paragraph(species, style)])
+            output_pdf.append(temp_filename)
 
-                    # Merge all remaining PDF files into the output PDF
-                    for pdf_file in pdf_files:
+            # Find the PDF report with the highest version number for each item
+            for item in items:
+                item_folder_name = f"{item} (QC)"
+                item_folder = os.path.join(folder_path, item_folder_name)
+                if os.path.isdir(item_folder):
+                    pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
+                    if pdf_files:
+                        # Sort the PDF files by version number
+                        pdf_files.sort(key=lambda f: int(f.split("v")[-1].split(".")[0]))
+                        # Get the PDF file with the highest version number
+                        pdf_file = pdf_files[-1]
                         pdf_path = os.path.join(item_folder, pdf_file)
+
+                        # Merge the PDF file into the output PDF
                         output_pdf.append(pdf_path)
 
-    # Save the output PDF as Master_Record_File_vX.pdf in the C:\Users\Public\Master_Record_File directory
-    output_pdf.write(output_file)
+
+        # Save the output PDF as sales_QC_report_vX.pdf in the C:\Users\Public\Sales_QC_Report directory
+        output_pdf.write(output_file)
+
+   
