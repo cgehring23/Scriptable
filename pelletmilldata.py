@@ -58,6 +58,7 @@ import json
 from io import BytesIO, StringIO
 from datetime import datetime, timedelta
 
+from collections import OrderedDict
 import re
 import pandas as pd
 import pyodbc
@@ -76,6 +77,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, inch
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
+from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import (
     BaseDocTemplate,
     SimpleDocTemplate,
@@ -91,6 +93,7 @@ from reportlab.platypus import (
     PageBreak,
     NextPageTemplate,
 )
+from  reportlab.platypus.tableofcontents import TableOfContents
 from reportlab.platypus import Image as PlatypusImage
 import tempfile
 import xml.dom
@@ -478,9 +481,11 @@ def generate_label(item, salesQC):
     version = 1
     while os.path.exists(f"{folder_path}/{labelDict['description']}_Feed_Label_v{version}.pdf"):
         version += 1
+    # Escape the / character in the description
+    valid_description = labelDict['description'].replace('/', '_')
 
     # Create the document
-    doc = SimpleDocTemplate(f"{folder_path}/{labelDict['description']}_Feed_Label_v{version}.pdf", pagesize=letter)
+    doc = SimpleDocTemplate(f"{folder_path}/{valid_description}_Feed_Label_v{version}.pdf", pagesize=letter)
 
 
     # Create the styles
@@ -1096,11 +1101,12 @@ def add_page_number(canvas, doc, page_size, page_number):
     """
     Function to add page numbers to each page.
     """
-    text = "Page %s" % page_number
-    canvas.setFont("Helvetica-Bold", 10)
-    text_width = stringWidth(text, "Helvetica-Bold", 10)
-    canvas.drawCentredString(page_size[0] / 2, 0.75 * inch, text)
-
+    # Do not print a page number on the title page
+    if page_number > 1:
+        text = "Page %s" % (page_number - 1)
+        canvas.setFont("Helvetica-Bold", 10)
+        text_width = stringWidth(text, "Helvetica-Bold", 10)
+        canvas.drawCentredString(page_size[0] / 2, 0.75 * inch, text)
 
 def add_page_numbers_to_pdf(input_path, output_path, page_size):
     """
@@ -1110,7 +1116,12 @@ def add_page_numbers_to_pdf(input_path, output_path, page_size):
     writer = PdfWriter()
 
     # Iterate through each page of the PDF
-    for page_number, page in enumerate(reader.pages, start=1):
+    for page_number, page in enumerate(reader.pages, start=0):
+        # Skip the first page
+        if page_number <=1:
+            writer.add_page(page)
+            continue
+
         packet = io.BytesIO()
         can = canvas.Canvas(packet, pagesize=page_size)
         add_page_number(can, can, page_size, page_number)
@@ -1120,13 +1131,17 @@ def add_page_numbers_to_pdf(input_path, output_path, page_size):
         packet.seek(0)
         new_pdf = PdfReader(packet)
 
-        # Merge the page from the original PDF and the page with the page number
-        page.merge_page(new_pdf.pages[0])
-        writer.add_page(page)
+        # Check if the new_pdf object contains at least one page
+        if new_pdf.pages:
+            # Merge the page from the original PDF and the page with the page number
+            page.merge_page(new_pdf.pages[0])
+            writer.add_page(page)
 
     # Write the output PDF file
     with open(output_path, "wb") as f:
         writer.write(f)
+
+
 
 try:
         output = subprocess.check_output(['python', 'C:\\Users\\TM - Curran\\Documents\\Python Scripts\\Bagging Scripts\\getrecipes1.py', item], stderr=subprocess.STDOUT)
@@ -1191,7 +1206,7 @@ for salesQC in [0, 1]:
         frame = Frame(
             inch, inch, letter[0] - 2 * inch, letter[1] - 2 * inch,
             showBoundary=0,
-            topPadding=200,
+            topPadding=100,
             bottomPadding=0,
             leftPadding=0,
             rightPadding=0
@@ -1199,7 +1214,7 @@ for salesQC in [0, 1]:
 
         styles = getSampleStyleSheet()
         style = styles["Heading1"]
-        style.fontSize = 48
+        style.fontSize = 36
         style.alignment = TA_CENTER
 
         page_template = PageTemplate(id="species_title", frames=[frame])
@@ -1207,19 +1222,33 @@ for salesQC in [0, 1]:
         # Create a title page for the PDF
         title_text = "Tucker Milling, LLC<br/><br/><br/>Master Record File"
         title = Paragraph(title_text, style)
-        spacer = Spacer(0, 2 * inch)
+        spacer = Spacer(0, 1 * inch)
         temp_doc = SimpleDocTemplate("title_temp.pdf", pagesize=letter)
         temp_doc.addPageTemplates([page_template])
         temp_doc.build([title, spacer])
-        output_pdf.append("title_temp.pdf")
+        #output_pdf.append("title_temp.pdf")
 
         # Generate the output PDF file path with the appropriate version number
         output_pdf_path = os.path.join(output_folder, f"Master_Record_File_v{version}.pdf")
 
+        # Create a dictionary to store the page numbers for each species and item
+        page_numbers = {}
+        creation_dates = {}
+
+        # Initialize the current page number
+        current_page_number = 1
+
         for species, items in species_items.items():
+            # Store the page number and heading type for the species title page
+            page_numbers[species] = (current_page_number, 1)
+
+            # Increment the current page number for the species title page             
+            current_page_number += 1
+
             # Remove any trailing "s" from the species name and add "Feeds" to the end
             if species != "Grains":
                 species = species.rstrip("s") + " Feeds"
+
             # Create a temporary PDF with the species title page
             temp_filename = f"{species}_temp.pdf"
             temp_doc = SimpleDocTemplate(temp_filename, pagesize=letter)
@@ -1227,24 +1256,252 @@ for salesQC in [0, 1]:
             temp_doc.build([Paragraph(species, style)])
             output_pdf.append(temp_filename)
             
+            # Initialize a variable to keep track of whether the current PDF file is the first one from the current item_folder
+            first_item = True
+
             # Find all PDF files for each item that have a creation date within 1 year of the current date
             for item in items:
                 item_folder = os.path.join(folder_path, item)
                 if os.path.isdir(item_folder):
                     pdf_files = [f for f in os.listdir(item_folder) if f.endswith(".pdf")]
                     if pdf_files:
+                        def extract_version(filename):
+                            # Extract the version number from the filename
+                            try:
+                                return int(filename.split('_Feed_Label_v')[1].split('.pdf')[0])
+                            except ValueError:
+                                return 0  # If the filename doesn't match the pattern, treat it as version 0
                         # Get the current date and time
                         now = datetime.now()
                         # Get the cutoff date and time (1 year before the current date and time)
                         cutoff = now - timedelta(days=365)
 
-                        # Filter the PDF files by creation date
-                        pdf_files = [f for f in pdf_files if datetime.fromtimestamp(os.path.getctime(os.path.join(item_folder, f))) >= cutoff]
+                        # Filter and sort the PDF files based on their version numbers
+                        pdf_files = sorted([f for f in pdf_files if f.lower().endswith('.pdf') and datetime.fromtimestamp(os.path.getctime(os.path.join(item_folder, f))) >= cutoff], key=extract_version)
+
+                        print(pdf_files)
 
                         # Merge all remaining PDF files into the output PDF
                         for pdf_file in pdf_files:
                             pdf_path = os.path.join(item_folder, pdf_file)
                             output_pdf.append(pdf_path)
+   
+                            # Store the page number and heading type for the item PDF file
+                            if first_item:
+                                # Add an additional entry to page_numbers with a heading type of 2
+                                item_name = pdf_file.split("_",1)[0]
+                                print(item_name)
+                                creation_date = os.path.getctime(pdf_path)
+                                page_numbers[item_name] = (current_page_number, 2)
+                                page_numbers[pdf_file] = (current_page_number, 3)
+                                creation_dates[pdf_file] = datetime.fromtimestamp(os.path.getctime(pdf_path)).strftime('%B %d, %Y')
+                                # Set first_item to False after processing the first item PDF file
+                                first_item = False
+                            else:
+                                creation_date = os.path.getctime(pdf_path)
+                                page_numbers[pdf_file] = (current_page_number, 3)
+                                creation_dates[pdf_file] = datetime.fromtimestamp(os.path.getctime(pdf_path)).strftime('%B %d, %Y')
+
+                            # Increment the current page number by the number of pages in the item PDF file
+                            reader = PdfReader(pdf_path)
+                            current_page_number += len(reader.pages)
+                    # Reset first_item to True for each new recipe
+                    first_item = True
+        
+        page_numbers_list = list(page_numbers.items())
+        page_numbers_list = [(f"{key.rstrip('s')} Feed" if key != 'Grains' and value[1] == 1 else key, value) for key, value in page_numbers_list]
+        
+        modified_list = [
+    (f"Version {item[0][:-4].split('_v')[-1]}", item[1])
+    if item[1][1] == 3 else (item[0], item[1])
+    for item in page_numbers_list
+]
+        modified_list2 = [(f"{creation_dates.get(item[0], 'Unknown Date')}", item[1])
+    if item[1][1] == 3 else (item[0], item[1])
+    for item in page_numbers_list
+]
+
+        page_numbers = modified_list
+        print("Page Numbers: ",page_numbers)
+        print("Creation Dates: ", modified_list2)
+        
+        new_list = []
+        for i in range(len(page_numbers)):
+            if 'Version' in page_numbers[i][0]:
+                new_list.append((modified_list2[i][0] + ' (' + page_numbers[i][0] + ')', page_numbers[i][1]))
+            else:
+                new_list.append(page_numbers[i])
+        print("New List: ", new_list)
+        
+
+        class TOCEntry(Flowable):
+            max_page_number_width = 0
+            page_number_width = 40  # Fixed width for the page numbers
+
+            def __init__(self, key, page_number, header_style, column_width):
+                super().__init__()
+                self.key = key
+                self.page_number = page_number
+                self.header_style = header_style
+                self.column_width = column_width
+
+                # Calculate the width of the page number
+                canvas = Canvas('temp.pdf')
+                page_number_text = str(self.page_number)
+                if self.header_style == 3:
+                    font_name = header_styles[4].fontName
+                    font_size = header_styles[4].fontSize
+                else:
+                    font_name = header_styles[2].fontName
+                    font_size = header_styles[2].fontSize
+                page_number_width = canvas.stringWidth(page_number_text, font_name, font_size)
+                canvas.save()
+
+                # Update max_page_number_width if necessary
+                if page_number_width > TOCEntry.max_page_number_width:
+                    TOCEntry.max_page_number_width = page_number_width
+
+            def draw(self):
+                canvas = self.canv
+                key_paragraph = self.key
+                key_paragraph.wrapOn(canvas, self.column_width, 0)
+
+                # Use appropriate header_style for dots and page numbers
+                page_number_text = str(self.page_number)
+                if "Version" in key_paragraph.text:
+                    canvas.setFont(header_styles[4].fontName, header_styles[4].fontSize)
+                    font_name = header_styles[4].fontName
+                    font_size = header_styles[4].fontSize
+                else:
+                    canvas.setFont(header_styles[2].fontName, header_styles[2].fontSize)
+                    font_name = header_styles[2].fontName
+                    font_size = header_styles[2].fontSize
+
+                # Calculate the width of the page number
+                page_number_width = canvas.stringWidth(page_number_text, font_name, font_size)
+
+                # Calculate the width of a dot
+                dot_width = canvas.stringWidth('.', font_name, font_size)
+
+                # Draw key paragraph
+                if "Version" in key_paragraph.text and "(" in key_paragraph.text:
+                    # Split text into date and version
+                    date_text, version_text = key_paragraph.text.split("(")
+                    version_text = "(" + version_text
+
+                    # Draw date text in bold
+                    date_paragraph = Paragraph(date_text, header_styles[5])
+                    date_paragraph.wrapOn(canvas, self.column_width, 0)
+                    date_paragraph.drawOn(canvas, header_styles[4].leftIndent, 0)
+
+                    # Draw version text in normal style
+                    x = canvas.stringWidth(date_text, header_styles[3].fontName, header_styles[3].fontSize) + 2.224
+                    version_paragraph = Paragraph(version_text, header_styles[3])
+                    version_paragraph.wrapOn(canvas, self.column_width - x, 0)
+                    version_paragraph.drawOn(canvas, x, 0)
+
+                    # Calculate the width of the key paragraph
+                    key_paragraph_width = x + canvas.stringWidth(version_text, header_styles[3].fontName, header_styles[3].fontSize)
+                else:
+                    key_paragraph.drawOn(canvas, 0, 0)
+
+                    # Calculate the width of the key paragraph
+                    key_paragraph_width = canvas.stringWidth(key_paragraph.text, self.header_style.fontName, self.header_style.fontSize)
+
+                # Calculate the available width for dots
+                available_width = self.column_width - key_paragraph_width - page_number_width - self.header_style.leftIndent - 8.34
+
+                # Calculate the number of dots needed to fill the available width
+                num_dots = int(available_width / dot_width)
+
+                # Draw dots
+                x = key_paragraph_width + self.header_style.leftIndent + 5
+                y = (key_paragraph.height - self.header_style.fontSize) / 2  # Center dots vertically within key paragraph
+                for i in range(num_dots):
+                    canvas.drawString(x, y, '.')
+                    x += dot_width
+
+                # Draw page number on the right side
+                x = self.column_width - page_number_width  # Subtract page_number_width to align page numbers correctly
+                canvas.drawString(x, y, str(self.page_number))
+
+            def wrap(self, availWidth, availHeight):
+                return (self.column_width, self.key.wrap(availWidth, availHeight)[1])
+
+
+
+        page_numbers = new_list
+
+
+        header_styles = {
+            1: ParagraphStyle(name="Header1", fontName="Helvetica-Bold", fontSize=10, allowOrphans=0, allowWidows=0),
+            2: ParagraphStyle(name="Header2", fontName="Helvetica-Bold", fontSize=10, leftIndent=20, allowOrphans=0, allowWidows=0),
+            3: ParagraphStyle(name="Header3", fontName="Helvetica", fontSize=8, leftIndent=40, allowOrphans=0, allowWidows=0),
+            4: ParagraphStyle(name="Header4", fontName="Helvetica", fontSize=10, leftIndent=20, allowOrphans=0, allowWidows=0),
+            5: ParagraphStyle(name="Header5", fontName="Helvetica-Bold", fontSize=8, leftIndent=20, allowOrphans=0, allowWidows=0),
+        }
+        # ... (previous code remains the same)
+
+        # Create the document
+        doc = SimpleDocTemplate(
+            r'C:\Users\Public\Master_Record_File\mintoc2.pdf',
+            pagesize=letter,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72,
+        )
+
+        # Define the header style
+        header_style = ParagraphStyle(
+            name="Header",
+            fontName="Helvetica-Bold",
+            fontSize=16,
+            alignment=TA_CENTER,
+        )
+
+        # Process the TOC entries
+        Story = []  # The main story list to store all the content
+        current_page_entries = []  # List to store the TOC entries for the current page
+        current_page_number = 1  # Keeps track of the current page number
+        max_entries_per_page = 25  # Adjust this value based on how many entries can fit on one page
+
+        for item in page_numbers:
+            key = item[0]
+            page_number = item[1][0]
+            header_type = item[1][1]
+
+            if page_number != current_page_number:
+                # Check if the current entries fit on the current page
+                available_height = doc.height - doc.bottomMargin - doc.topMargin - sum(e.wrap(doc.width, doc.height)[1] for e in current_page_entries)
+                if available_height < 0:
+                    # If the entries don't fit, start a new page
+                    Story.extend(current_page_entries)
+                    Story.append(PageBreak())
+                    current_page_entries = []
+                    current_page_number += 1
+
+            # Add the title and spacing for the first entry of each page
+            if not current_page_entries:
+                current_page_entries.append(Paragraph("Table of Contents", header_style))
+                current_page_entries.append(Spacer(1, 32))
+
+            key_paragraph = Paragraph(key, header_styles[header_type])
+            toc_entry = TOCEntry(key_paragraph, page_number, header_styles[header_type], 400)  # Use header_styles[header_type] settings for each entry
+            current_page_entries.append(toc_entry)
+            current_page_entries.append(Spacer(1, 12))  # Add extra spacing between entries
+
+        # Add the content of the last current_page_entries list to the main Story list
+        Story.extend(current_page_entries)
+
+        # Build the document with the Story content
+        doc.build(Story)
+
+        # Merge the title page into the main document
+        output_pdf.merge(0, "title_temp.pdf")
+
+        # Merge the table of contents into the main document
+        output_pdf.merge(1,  r'C:\Users\Public\Master_Record_File\mintoc2.pdf')
 
         # Save the output PDF as Master_Record_File_vX.pdf in the C:\Users\Public\Master_Record_File directory
         output_pdf.write(output_file)
@@ -1254,6 +1511,8 @@ for salesQC in [0, 1]:
     
         # Add page numbers to the output PDF
         add_page_numbers_to_pdf(output_pdf_path, output_pdf_path, letter)
+
+        
 
     elif salesQC == 1:
         print("Generating Product Tags")
